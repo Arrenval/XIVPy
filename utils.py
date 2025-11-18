@@ -17,14 +17,14 @@ def write_padding(amount: int) -> bytes:
     
     return bytes([0] * amount)
 
-def write_alignment(file: BytesIO, alignment: int=8) -> bytes:
+def write_alignment(file: BytesIO, alignment: int=8) -> None:
     current_pos = file.tell()
     if current_pos % alignment == 0:
         return
     
     padding = alignment - (current_pos % alignment)
     
-    return bytes([0] * padding)
+    file.write(bytes([0] * padding))
 
 def read_packed_version(packed_version: int) -> float:
     build = packed_version & 0xFF
@@ -48,8 +48,9 @@ class BinaryReader:
         self.pos += size
         return result[0] if len(result) == 1 else result
     
-    def read_byte(self) -> int:
-        return self.read_struct('<B')
+    def read_byte(self, signed=False) -> int:
+        sign = 'b' if signed else 'B'
+        return self.read_struct(f'<{sign}')
     
     def read_bytes(self, length: int) -> bytes:
         if self.pos + length > self.length:
@@ -61,11 +62,20 @@ class BinaryReader:
     def read_bool(self) -> bool:
         return self.read_struct('<?')
     
+    def read_int16(self) -> int:
+        return self.read_struct('<h')
+    
+    def read_int32(self) -> int:
+        return self.read_struct('<i')
+    
     def read_uint16(self) -> int:
         return self.read_struct('<H')
     
     def read_uint32(self) -> int:
-        return self.read_struct('<I')  
+        return self.read_struct('<I')
+      
+    def read_uint64(self) -> int:
+        return self.read_struct('<Q')  
     
     def read_float(self) -> float:
         return self.read_struct('<f')
@@ -97,7 +107,7 @@ class BinaryReader:
         try:
             return string_bytes.decode(encoding)
         except UnicodeDecodeError as e:
-            raise UnicodeDecodeError(f"Couldn't decode string: {e}") 
+            raise UnicodeDecodeError(encoding, raw_bytes, self.pos, self.pos + length, f"Couldn't decode string: {e}") 
     
     def slice_from(self, offset: int, length: int) -> 'BinaryReader':
         if offset + length > self.length:
