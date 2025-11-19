@@ -11,6 +11,16 @@ from dataclasses  import asdict, fields
 from numpy.typing import NDArray
 
 
+def write_null_string(file: BytesIO, string:str, fixed_length: int | None=None) -> None:
+    string_length = len(string)
+    if fixed_length is not None and string_length > fixed_length:
+        raise Exception(f"String longer than set length: {fixed_length}")
+    
+    padding = 1 if fixed_length is None else fixed_length - string_length
+
+    file.write(string.encode())
+    file.write(write_padding(padding))
+
 def write_padding(amount: int) -> bytes:
     if amount == 0:
         return b''
