@@ -3,7 +3,8 @@
 * The `phyb` package uses VFXEditor/Penumbra's Phyb structs by [@0ceal0t](https://github.com/0ceal0t) and [@Ottermandias](https://github.com/Ottermandias).
 * The binary span reader in the `utils` module is based on [@Ny](https://github.com/Exter-N) and [@Ottermandias](https://github.com/Ottermandias)' [utilities](https://github.com/Ottermandias/Penumbra.GameData/blob/10fdb025436f7ea9f1f5e97635c19eee0578de7b/Files/Utility/SpanBinaryReader.cs).
 * The `model` package is based on the structs in [Lumina](https://github.com/NotAdam/Lumina/tree/master/src/Lumina/Models/Models) and [Penumbra](https://github.com/Ottermandias/Penumbra.GameData/tree/10fdb025436f7ea9f1f5e97635c19eee0578de7b/Files).
-* `kaos` is based on [@ackwell](https://github.com/ackwell)'s [mayhem](https://github.com/ackwell/mayhem) reader.
+* `kaos.tagfile` is based on [@ackwell](https://github.com/ackwell)'s [mayhem](https://github.com/ackwell/mayhem) reader.
+* `kaos.animation` would not be possible without [HavokLib](https://github.com/PredatorCZ/HavokLib).
 * [@ackwell](https://github.com/ackwell) for help with understanding XIV primitives and their usage.
 
 ##### Final Fantasy XIV © SQUARE ENIX CO., LTD. All Rights Reserved. This repository is not affiliated with SQUARE ENIX CO., LTD. in any way.
