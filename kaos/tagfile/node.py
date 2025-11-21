@@ -3,7 +3,7 @@ from struct      import pack
 from typing      import Optional, Any
 from dataclasses import dataclass, field
 
-from ..utils     import BinaryReader
+from ...utils    import BinaryReader
 from .helpers    import KaosHelper, KaosContext
 from .definition import Definition, Field, FieldKind, Kind
 
@@ -12,7 +12,7 @@ from .definition import Definition, Field, FieldKind, Kind
 class Node(KaosHelper):
     definition: Definition = None
     field_mask: list[bool] = field(default_factory=list)
-    values    : dict[str, Any | list[Any]] = field(default_factory=dict)
+    values    : dict[str, Any | list[Any] | bytes] = field(default_factory=dict)
 
     @classmethod
     def from_bytes(cls, context: KaosContext, reader: BinaryReader, definition : Optional[Definition]=None, store_ref=True) -> int:
@@ -42,6 +42,7 @@ class Node(KaosHelper):
         node.values     = node._read_fields(context, reader, fields, node.field_mask)
 
         context.nodes[node_idx] = node
+        print(node)
         return node_idx
     
     @classmethod
@@ -120,7 +121,7 @@ class Node(KaosHelper):
             case _:
                 raise ValueError(f"Node: Unknown value type: {kind.base_type}")
                
-    def _read_value_arr(self, context: KaosContext, reader: BinaryReader, kind: Kind, count: int) -> list[Any]:
+    def _read_value_arr(self, context: KaosContext, reader: BinaryReader, kind: Kind, count: int) -> list[Any] | bytes:
 
         def read_struct() -> list:
             definition = context.get_definition(kind.type_name)
@@ -147,6 +148,11 @@ class Node(KaosHelper):
             return nodes
         
         match kind.base_type:
+            case FieldKind.BYTE:
+                data = reader.data[reader.pos: reader.pos + count]
+                reader.pos += count
+                return data
+            
             case FieldKind.INTEGER:
                 unknown = self.read_hki32(reader)
                 if unknown != 4:
@@ -307,6 +313,13 @@ class Node(KaosHelper):
             case _:
                 raise ValueError(f"Node: Unknown value type: {kind.base_type}")
     
+    @property
+    def name(self) -> str:
+        if self.definition:
+            return self.definition.name
+        else:
+            return "None"
+    
     def __getitem__(self, key: str) -> list | Any:
         return self.values[key]
     
@@ -343,7 +356,12 @@ class Node(KaosHelper):
                 
                 if is_set:
                     if field.name in self.values:
-                        field_info += f" = {self.values[field.name]}"
+                        if field.kind.arr_type == FieldKind.IS_ARRAY and field.kind.base_type == FieldKind.BYTE:
+                            field_values = "<byte data>"
+                        else:
+                            field_values = self.values[field.name]
+
+                        field_info += f" = {field_values}"
                         value_idx  += 1
                     else:
                         field_info += " = <missing value>"

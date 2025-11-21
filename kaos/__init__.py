@@ -1,9 +1,9 @@
-from typing      import TYPE_CHECKING
+from typing   import TYPE_CHECKING
 
-from .node       import Node
-from .data       import get_definitions
-from .tagfile    import Tagfile
-from .definition import Definition
+from .data    import get_definitions
+from .tagfile import Node
+from .tagfile import Tagfile
+from .tagfile import Definition
 
 if TYPE_CHECKING:
     from .nodes  import *

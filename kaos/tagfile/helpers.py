@@ -1,7 +1,8 @@
 from io          import BytesIO
-from ..utils     import BinaryReader
 from typing      import TYPE_CHECKING
 from dataclasses import dataclass, field
+
+from ...utils    import BinaryReader
 
 if TYPE_CHECKING:
     from .node       import Node

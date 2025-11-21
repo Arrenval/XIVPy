@@ -5,7 +5,7 @@ from enum        import IntFlag
 from typing      import Self
 from dataclasses import dataclass, field, fields, asdict
 
-from ..utils     import BinaryReader
+from ...utils    import BinaryReader
 from .helpers    import KaosHelper, KaosContext
 
 

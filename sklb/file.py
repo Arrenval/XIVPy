@@ -1,11 +1,11 @@
-from io          import BytesIO
-from struct      import pack
+from io      import BytesIO
+from struct  import pack
 
-from .anim       import AnimData
-from .enums      import SklbConst
-from ..kaos      import Tagfile
-from .header     import FileHeader, OldFileHeader
-from ..utils     import BinaryReader, write_alignment
+from .anim   import AnimData
+from .enums  import SklbConst
+from ..kaos  import Tagfile
+from .header import FileHeader, OldFileHeader
+from ..utils import BinaryReader, write_alignment
 
 
 class XIVSkeleton:

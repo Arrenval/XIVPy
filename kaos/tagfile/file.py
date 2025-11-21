@@ -3,12 +3,12 @@ from enum        import Enum
 from typing      import TYPE_CHECKING
 
 from .node       import Node
-from ..utils     import BinaryReader
+from ...utils    import BinaryReader
 from .helpers    import KaosHelper, KaosContext
 from .definition import Definition
 
 if TYPE_CHECKING:
-    from .nodes  import hkaSkeletonNode
+    from ..nodes  import hkaSkeletonNode
 
 
 class TagType(Enum):

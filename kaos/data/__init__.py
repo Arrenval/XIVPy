@@ -1,8 +1,8 @@
 import json
 
-from pathlib import Path
+from pathlib   import Path
 
-from ..definition import Definition
+from ..tagfile import Definition
 
 
 _FOLDER   = Path(__file__).parent

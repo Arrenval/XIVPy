@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Literal, overload
 
 if TYPE_CHECKING:
-    from ..node import Node
+    from ..tagfile.node import Node
 
 
     class hkBaseObjectNode(Node):
