@@ -356,8 +356,13 @@ class Node(KaosHelper):
                 
                 if is_set:
                     if field.name in self.values:
-                        if field.kind.arr_type == FieldKind.IS_ARRAY and field.kind.base_type == FieldKind.BYTE:
-                            field_values = "<byte data>"
+                        if field.kind.arr_type == FieldKind.IS_ARRAY:
+                            if field.kind.base_type == FieldKind.BYTE:
+                                field_values = "<byte data>"
+                            elif len(self.values[field.name]) > 500:
+                                field_values = "<large array>"
+                            else:
+                                field_values = self.values[field.name]
                         else:
                             field_values = self.values[field.name]
 
