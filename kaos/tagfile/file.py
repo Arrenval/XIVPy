@@ -8,7 +8,7 @@ from .helpers    import KaosHelper, KaosContext
 from .definition import Definition
 
 if TYPE_CHECKING:
-    from ..nodes  import hkaSkeletonNode
+    from ..nodes  import hkaSkeletonNode, hkaAnimationContainerNode
 
 
 class TagType(Enum):
@@ -150,6 +150,16 @@ class Tagfile(KaosHelper):
             mapper_nodes.append((map_name, self.nodes[data_idx]))
         
         return mapper_nodes
+
+    def get_animation_container(self) -> 'hkaAnimationContainerNode':
+        for idx in self.nodes[self.root_idx]["namedVariants"]:
+            if self.nodes[idx]["name"] != "hkaAnimationContainer":
+                continue
+            
+            variant = self.nodes[idx]["variant"]
+            return self.nodes[variant]
+        
+        raise Exception("Couldn't find animation container.")
 
     def create_context(self, read=True) -> KaosContext:
         self.context = KaosContext(

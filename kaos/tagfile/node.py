@@ -42,7 +42,6 @@ class Node(KaosHelper):
         node.values     = node._read_fields(context, reader, fields, node.field_mask)
 
         context.nodes[node_idx] = node
-        print(node)
         return node_idx
     
     @classmethod

@@ -15,7 +15,8 @@ class XIVAnim:
 
         self.anim_info: list[AnimInfo] = []
 
-        self.kaos: Tagfile = Tagfile()
+        self.kaos     : Tagfile = Tagfile()
+        self.remaining: bytes   = b''
 
     @classmethod
     def from_file(cls, file_path: str) -> 'XIVAnim':
@@ -37,6 +38,8 @@ class XIVAnim:
         
         reader.pos = pap.header.hk_offset
         pap.kaos   = Tagfile.from_bytes(reader)
+
+        pap.remaining = reader.data[pap.header.timeline_offset:]
 
         return pap
     

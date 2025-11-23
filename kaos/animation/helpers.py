@@ -1,50 +1,83 @@
-from math      import sqrt
-from mathutils import Quaternion, Matrix
+from numpy        import single
+from mathutils    import Matrix
+from numpy.typing import NDArray 
 
-from ...utils  import BinaryReader
 import numpy as np
 
-def read_quantised_quaternion(reader: BinaryReader) -> Quaternion:
-    return dequantise_quaternion(reader.read_bytes(6))
 
-def read_quantised_scalar(reader: BinaryReader, min: float, span: float) -> float:
-    return dequantise_scalar(reader.read_uint16(), min, span)
+def dequantise_quaternions(quat_data: NDArray, bone_count: int, rot_indices: NDArray, bindings: NDArray) -> NDArray:
+    quaternions = np.zeros((bone_count, quat_data.shape[1], 4))
+    quaternions[:, :, 3] = 1.0
 
-# Smallest Tree: https://gafferongames.com/post/snapshot_compression/
-def dequantise_quaternion(data: bytes) -> Quaternion:
-    packed = int.from_bytes(data, byteorder='little')
-    component_index = packed & 0x03              
-    val_a = (packed >> 2) & 0x7FFF               
-    val_b = (packed >> 17) & 0x7FFF              
-    val_c = (packed >> 32) & 0x7FFF
+    x_indices = rot_indices      
+    y_indices = rot_indices + 1  
+    z_indices = rot_indices + 2  
 
-    RANGE   = 0.7071067811865475
-    MAX_VAL = 0x7FFF
+    x_val = quat_data[x_indices, :]
+    y_val = quat_data[y_indices, :]
+    z_val = quat_data[z_indices, :]
     
-    # Convert from unsigned to signed range
-    a = ((val_a - MAX_VAL) / MAX_VAL) * RANGE
-    b = ((val_b - MAX_VAL) / MAX_VAL) * RANGE
-    c = ((val_c - MAX_VAL) / MAX_VAL) * RANGE
+    comp_idx = ((y_val >> 14) & 2) | ((x_val >> 15) & 1)
+    sign_bit = (z_val >> 15) != 0
     
-    d = sqrt(max(0.0, 1.0 - a*a - b*b - c*c))
-    
-    if component_index == 0:  
-        quat = Quaternion([c, d, a, b]) 
-    elif component_index == 1: 
-        quat = Quaternion([c, a, d, b])  
-    elif component_index == 2:  
-        quat = Quaternion([c, a, b, d]) 
-    else:                      
-        quat = Quaternion([d, a, b, c])  
-    
-    if quat.w < 0: quat.negate()
-    
-    quat.normalize()
-    return quat
+    MASK_15BIT = 0x7FFF  
+    x_quant = x_val & MASK_15BIT
+    y_quant = y_val & MASK_15BIT
+    z_quant = z_val & MASK_15BIT
 
-def dequantise_scalar(scalar: int, min: float, span: float) -> float:
-    normalised = scalar / 65535
-    return min + normalised * span
+    MIDPOINT = 16383 
+    x_signed = x_quant.astype(np.int32) - MIDPOINT
+    y_signed = y_quant.astype(np.int32) - MIDPOINT
+    z_signed = z_quant.astype(np.int32) - MIDPOINT
+
+    FRACTAL = single(0.000043161)
+    a = x_signed * FRACTAL
+    b = y_signed * FRACTAL
+    c = z_signed * FRACTAL
+
+    d_squared = 1.0 - a*a - b*b - c*c
+    d_squared = np.maximum(d_squared, 0.0)
+
+    d = np.sqrt(d_squared)
+    d = np.where(sign_bit, -d, d)
+    
+    for idx_value in range(4):
+        mask = (comp_idx == idx_value)
+        if not np.any(mask):
+            continue  
+        
+        if idx_value == 0:  
+            quaternions[bindings, :, 0][mask] = d[mask]
+            quaternions[bindings, :, 1][mask] = a[mask]
+            quaternions[bindings, :, 2][mask] = b[mask]
+            quaternions[bindings, :, 3][mask] = c[mask]
+        elif idx_value == 1:  
+            quaternions[bindings, :, 0][mask] = a[mask]
+            quaternions[bindings, :, 1][mask] = d[mask]
+            quaternions[bindings, :, 2][mask] = b[mask]
+            quaternions[bindings, :, 3][mask] = c[mask]
+        elif idx_value == 2:  
+            quaternions[bindings, :, 0][mask] = a[mask]
+            quaternions[bindings, :, 1][mask] = b[mask]
+            quaternions[bindings, :, 2][mask] = d[mask]
+            quaternions[bindings, :, 3][mask] = c[mask]
+        else: 
+            quaternions[bindings, :, 0][mask] = a[mask]
+            quaternions[bindings, :, 1][mask] = b[mask]
+            quaternions[bindings, :, 2][mask] = c[mask]
+            quaternions[bindings, :, 3][mask] = d[mask]
+    
+    w_negative  = quaternions[:, :, 3] < 0
+    quaternions = np.where(w_negative[:, :, np.newaxis], -quaternions, quaternions)
+
+    magnitudes = np.sqrt(np.sum(quaternions ** 2, axis=2))
+    quaternions_normalized = quaternions / magnitudes[:, :, np.newaxis]
+
+    return quaternions_normalized
+
+def dequantise_scalars(scalars: NDArray, min: NDArray, span: NDArray) -> NDArray:
+    normalised = scalars / single(65535)
+    return min[:, None] + normalised * span[:, None]
 
 def matrix_from_12floats(values) -> Matrix:
     return Matrix([

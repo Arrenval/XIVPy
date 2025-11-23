@@ -4,4 +4,6 @@ if TYPE_CHECKING:
     from .core import hkRootLevelContainerNode, hkRootLevelContainerNamedVariantNode
     from .anim import (hkaAnimationContainerNode, hkaSkeletonNode, hkaBoneNode, 
                        hkaSkeletonMapperNode, hkaSkeletonMapperDataNode, 
-                       hkaSkeletonMapperDataSimpleMappingNode)
+                       hkaSkeletonMapperDataSimpleMappingNode, hkaAnimationBindingNode,
+                       hkaAnimationNode, hkaInterleavedUncompressedAnimationNode, hkaQuantizedAnimationNode,
+                       hkaSplineCompressedAnimationNode)

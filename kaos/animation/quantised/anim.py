@@ -1,60 +1,21 @@
 import numpy as np
 
 from numpy        import ushort, single
-from mathutils    import Quaternion, Matrix
+from mathutils    import Quaternion, Matrix, Vector
 from dataclasses  import dataclass
 from numpy.typing import NDArray
 
 from .header      import AnimHeader
-from ..helpers    import read_quantised_quaternion, read_quantised_scalar, matrix_from_12floats
+from ..helpers    import dequantise_quaternions, dequantise_scalars, matrix_from_12floats
 from .sections    import Elements, StaticValues, DynamicRanges
 from ....utils    import BinaryReader
 
-
-@dataclass
-class QuantisedFrame:
-    translations: NDArray | None = None
-    rotations   : NDArray | None = None
-    scale       : NDArray | None = None
-    floats      : NDArray | None = None
-
-    # We don't use a class method because we initialise it manually to pass in the lists with static values beforehand
-    def from_bytes(self, data: bytes, dynamic_elements: Elements, range_min: DynamicRanges, range_span: DynamicRanges) -> 'QuantisedFrame':
-        reader = BinaryReader(data)
-
-        #Now we read the actual frame data
-        for idx, bone_element in enumerate(dynamic_elements.translations):
-            self.translations[bone_element] = read_quantised_scalar(reader, range_min.translations[idx], range_span.translations[idx])
-
-        for idx, bone_element in enumerate(dynamic_elements.rotations):
-            end = bone_element + 3
-            self.rotations[bone_element: end] = [reader.read_int16() for _ in range(3)]
-
-        for idx, bone_element in enumerate(dynamic_elements.scale):
-            self.scale[bone_element] = read_quantised_scalar(reader, range_min.scale[idx], range_span.scale[idx])
-
-        for idx, bone_element in enumerate(dynamic_elements.floats):
-            self.floats[bone_element] = read_quantised_scalar(reader, range_min.floats[idx], range_span.floats[idx])
-
-        self.rotations = self.get_quaternions()
-
-        return self
-    
-    def get_quaternions(self) -> list[Quaternion]:
-        reader = BinaryReader(self.rotations.tobytes()[1:])
-        count  = len(self.rotations) // 3
-        return [read_quantised_quaternion(reader) for _ in range(count)]
-    
-    def get_translations(self) -> list[Matrix]:
-        count  = len(self.translations) // 12
-        return [matrix_from_12floats(self.translations[idx * 12: idx * 12 + 12]) for idx in range(count)]
 
 class QuantisedAnimation:
 
     def __init__(self) -> None:
         # All ints in this format are ushorts
-        self.header      = AnimHeader()
-        self.tracks: int = 0
+        self.header = AnimHeader()
 
         self.static_elements  = Elements()
         self.dynamic_elements = Elements()
@@ -63,10 +24,13 @@ class QuantisedAnimation:
         self.range_min     = Elements()
         self.range_span    = Elements()
 
-        self.frames: list[QuantisedFrame] = []
+        self.translations: NDArray = None
+        self.rotations   : NDArray = None
+        self.scale       : NDArray = None
+        self.floats      : NDArray = None
     
     @classmethod
-    def from_bytes(cls, data: bytes) -> 'QuantisedAnimation':
+    def from_bytes(cls, data: bytes, tracks: list[int]) -> 'QuantisedAnimation':
         anim   = cls()
         reader = BinaryReader(data)
 
@@ -90,23 +54,41 @@ class QuantisedAnimation:
         anim.range_span = DynamicRanges.from_bytes(reader, header.dynamic_trs, header.dynamic_scl, header.dynamic_floats)
         
         #Inputting the static values into the pose arrays
-        trs, rot, scl, floats = anim.create_pose_arrays()
+        trs, rot, scl, floats = anim._create_frame_arrays(anim.header.frame_count)
+        buffer_size = anim.header.frame_count * anim.header.frame_size
+        all_frames  = np.frombuffer(reader.data[pre_frame_size: pre_frame_size + buffer_size], ushort)
+        all_frames  = all_frames.reshape(anim.header.frame_count, anim.header.frame_size // 2)
 
-        reader.pos   = pre_frame_size
-        frame_offset = pre_frame_size
-        for _ in range(header.frame_count):
-            frame = QuantisedFrame(
-                        translations=trs.copy(), 
-                        rotations=rot.copy(), 
-                        scale=scl.copy(), 
-                        floats=floats.copy()
-                    )
+        trs_start   = 0
+        rot_start   = trs_start + anim.header.dynamic_trs
+        scl_start   = rot_start + anim.header.dynamic_rot
+        float_start = scl_start + anim.header.dynamic_scl
+
+        if anim.header.dynamic_trs:
+            trs_end = trs_start + anim.header.dynamic_trs
+            anim._scalars(trs, all_frames[:, trs_start: trs_end].T, "translations")
+            anim.translations = trs
+
+        if anim.header.dynamic_rot:
+            rot_end = rot_start + anim.header.dynamic_rot
+            rot[anim.dynamic_elements.rotations, :] = all_frames[:, rot_start: rot_end].T
+
+            rot_indices    = np.concatenate([anim.static_elements.rotations, anim.dynamic_elements.rotations])
+            anim.rotations = dequantise_quaternions(rot, anim.header.bone_count, np.sort(rot_indices), np.array(tracks))
             
-            frame_data = reader.data[frame_offset: frame_offset + header.frame_size]
-            anim.frames.append(frame.from_bytes(frame_data, anim.dynamic_elements, anim.range_min, anim.range_span))
-            frame_offset += header.frame_size
+        if anim.header.dynamic_scl:
+            scl_end = scl_start + anim.header.dynamic_scl
+            anim._scalars(scl, all_frames[:, scl_start: scl_end].T, "scale")
+            anim.scale = scl
+
+        if anim.header.dynamic_floats:
+            float_end = float_start + anim.header.dynamic_floats
+            anim._scalars(floats, all_frames[:, float_start: float_end].T, "floats")
+            anim.floats = floats
+
+        return anim
     
-    def create_pose_arrays(self, bone_count: int | None=None) -> tuple[NDArray, ...]:
+    def _create_frame_arrays(self, frame_count: int) -> tuple[NDArray, ...]:
 
         def get_max_index(static_arr: NDArray, dynamic_arr: NDArray) -> int:
             indices = []
@@ -116,30 +98,34 @@ class QuantisedAnimation:
                 indices.append(dynamic_arr.max())
             return max(indices) if indices else -1
 
-        if bone_count is None:
-            bone_count = self.header.bone_count
-
         trs_len   = get_max_index(self.static_elements.translations, self.dynamic_elements.translations) + 1
         rot_len   = get_max_index(self.static_elements.rotations, self.dynamic_elements.rotations) + 1
         scl_len   = get_max_index(self.static_elements.scale, self.dynamic_elements.scale) + 1
         float_len = get_max_index(self.static_elements.floats, self.dynamic_elements.floats) + 1
 
-        translations = np.zeros(trs_len, single)
-        rotations    = np.zeros(rot_len + 2 if rot_len > 0 else 0, ushort)
-        scale        = np.zeros(scl_len, single)
-        floats       = np.zeros(float_len, single)
+        translations = np.zeros((trs_len, frame_count), single)
+        rotations    = np.zeros((rot_len + 2 if rot_len else 0, frame_count), ushort)
+        scale        = np.zeros((scl_len, frame_count), single)
+        floats       = np.zeros((float_len, frame_count), single)
 
-        for idx, bone_element in enumerate(self.static_elements.translations):
-            translations[bone_element] = self.static_values.translations[idx]
+        # self.translations = np.zeros((trs_len, frame_count), single)
+        # rotations    = np.zeros((rot_len + 2 if rot_len else 0, frame_count), ushort)
+        # scale        = np.zeros((scl_len, frame_count), single)
+        # floats       = np.zeros((float_len, frame_count), single)
 
-        for idx, bone_element in enumerate(self.static_elements.rotations):
-            end = bone_element + 3
-            rotations[bone_element: end] = self.static_values.rotations[idx: idx + 3]
+        translations[self.static_elements.translations, :] = self.static_values.translations[:, None]
 
-        for idx, bone_element in enumerate(self.static_elements.scale):
-            scale[bone_element] = self.static_values.scale[idx]
+        rot_indices = self.static_elements.rotations[:, None] + np.arange(3)
+        rotations[rot_indices.ravel()] = self.static_values.rotations[:, None]
 
-        for idx, bone_element in enumerate(self.static_elements.floats):
-            floats[bone_element] = self.static_values.floats[idx]
+        scale[self.static_elements.scale, :]   = self.static_values.scale[:, None]
+        floats[self.static_elements.floats, :] = self.static_values.floats[:, None]
 
         return translations, rotations, scale, floats
+
+    def _scalars(self, array: NDArray, scalars: NDArray, container: str) -> None:
+        array[getattr(self.dynamic_elements, container), :] = dequantise_scalars(
+                                                                            scalars,
+                                                                            getattr(self.range_min, container),
+                                                                            getattr(self.range_span, container),
+                                                                        )
