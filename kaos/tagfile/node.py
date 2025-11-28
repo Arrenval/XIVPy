@@ -1,7 +1,10 @@
-from io          import BytesIO
-from struct      import pack
-from typing      import Optional, Any
-from dataclasses import dataclass, field
+import numpy as np
+
+from io           import BytesIO
+from struct       import pack
+from typing       import Optional, Any
+from dataclasses  import dataclass, field
+from numpy.typing import NDArray
 
 from ...utils    import BinaryReader
 from .helpers    import KaosHelper, KaosContext
@@ -12,7 +15,7 @@ from .definition import Definition, Field, FieldKind, Kind
 class Node(KaosHelper):
     definition: Definition = None
     field_mask: list[bool] = field(default_factory=list)
-    values    : dict[str, Any | list[Any] | bytes] = field(default_factory=dict)
+    values    : dict[str, Any | list[Any] | bytes | NDArray] = field(default_factory=dict)
 
     @classmethod
     def from_bytes(cls, context: KaosContext, reader: BinaryReader, definition : Optional[Definition]=None, store_ref=True) -> int:
@@ -120,7 +123,7 @@ class Node(KaosHelper):
             case _:
                 raise ValueError(f"Node: Unknown value type: {kind.base_type}")
                
-    def _read_value_arr(self, context: KaosContext, reader: BinaryReader, kind: Kind, count: int) -> list[Any] | bytes:
+    def _read_value_arr(self, context: KaosContext, reader: BinaryReader, kind: Kind, count: int) -> list[Any] | bytes | NDArray:
 
         def read_struct() -> list:
             definition = context.get_definition(kind.type_name)
@@ -178,12 +181,8 @@ class Node(KaosHelper):
                     if array_size not in (3, 4):
                         raise ValueError(f"Unexpected array length: {array_size}")
                 
-                result = []
-                for _ in range(count):
-                    float_array = [reader.read_float() for _ in range(array_size)]
-                    result.append(float_array)
-                
-                return result
+                result = reader.read_to_ndarray('<f', array_size * count)
+                return result.reshape(count, array_size)
             
             case _:
                 raise ValueError(f"Node: Unknown value array type: : {kind.base_type}")
@@ -208,7 +207,6 @@ class Node(KaosHelper):
             self.write_hki32(file, context.get_definition_idx(self.definition.name))
         
         self.write_bitfield(file, self.field_mask)
-        value_idx = 0
         for is_set, field in zip(self.field_mask, self.definition.get_fields()):
             if not is_set:
                 continue
@@ -218,7 +216,6 @@ class Node(KaosHelper):
             else:
                 self._write_value(context, file, field.kind, self.values[field.name])
             
-            value_idx += 1
     
     def _write_array(self, context: KaosContext, file: BytesIO, kind: Kind, values: dict) -> None:
         match kind.arr_type:
@@ -249,7 +246,7 @@ class Node(KaosHelper):
             
             case FieldKind.REFERENCE:
                 ref_idx = context.node_to_ref[value]
-                return self.write_hki32(file, ref_idx)
+                self.write_hki32(file, ref_idx)
             
             case FieldKind.FLOAT_4 | FieldKind.FLOAT_8 | FieldKind.FLOAT_12 | FieldKind.FLOAT_16:
                 count = int(kind.base_type.name.split('_')[1])
@@ -262,8 +259,11 @@ class Node(KaosHelper):
             case _:
                 raise ValueError(f"Node: Unknown value type: {kind.base_type}")
             
-    def _write_value_arr(self, context: KaosContext, file: BytesIO, kind: Kind, values: list[Any]) -> None:
+    def _write_value_arr(self, context: KaosContext, file: BytesIO, kind: Kind, values: list[Any] | NDArray | bytes) -> None:
         match kind.base_type:
+            case FieldKind.BYTE:
+                file.write(values)
+            
             case FieldKind.INTEGER:
                 self.write_hki32(file, 4)
                 for value in values:
@@ -292,6 +292,7 @@ class Node(KaosHelper):
                 for is_set, field in zip(field_mask, fields):
                     if not is_set:
                         continue
+
                     self._write_value_arr(context, file, field.kind, field_cols[field.name])
                     
             case FieldKind.REFERENCE:
@@ -300,14 +301,15 @@ class Node(KaosHelper):
                     self.write_hki32(file, ref_idx)
             
             case FieldKind.FLOAT_4 | FieldKind.FLOAT_8 | FieldKind.FLOAT_12 | FieldKind.FLOAT_16:
+                if not isinstance(values, np.ndarray):
+                    values = np.array(values, dtype=np.float32)
+
                 arr_size = int(kind.base_type.name.split('_')[1])  
                 if arr_size == 4:
-                    arr_size = 3 if all(len(arr) != 4 for arr in values) else 4
+                    arr_size = values.shape[1]
                     self.write_hki32(file, arr_size)
                 
-                for arr in values:
-                    for value in arr:
-                        file.write(pack('<f', value))
+                file.write(values.tobytes())
             
             case _:
                 raise ValueError(f"Node: Unknown value type: {kind.base_type}")
