@@ -1,5 +1,5 @@
+from dataclasses  import dataclass
 from numpy.typing import NDArray
-from dataclasses import dataclass
 
 from ....utils import BinaryReader
 

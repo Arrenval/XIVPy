@@ -1,8 +1,14 @@
-from numpy        import single
-from mathutils    import Matrix
+import numpy as np
+
+from numpy        import float32, int32
+from typing       import TYPE_CHECKING
+from collections  import defaultdict
 from numpy.typing import NDArray 
 
-import numpy as np
+from .vmath       import normalise_quats
+
+if TYPE_CHECKING:
+    from ..nodes import hkaSkeletonNode
 
 
 def dequantise_quaternions(quat_data: NDArray, bone_count: int, rot_indices: NDArray, bindings: NDArray) -> NDArray:
@@ -26,11 +32,11 @@ def dequantise_quaternions(quat_data: NDArray, bone_count: int, rot_indices: NDA
     z_quant = z_val & MASK_15BIT
 
     MIDPOINT = 16383 
-    x_signed = x_quant.astype(np.int32) - MIDPOINT
-    y_signed = y_quant.astype(np.int32) - MIDPOINT
-    z_signed = z_quant.astype(np.int32) - MIDPOINT
+    x_signed = x_quant.astype(int32) - MIDPOINT
+    y_signed = y_quant.astype(int32) - MIDPOINT
+    z_signed = z_quant.astype(int32) - MIDPOINT
 
-    FRACTAL = single(0.000043161)
+    FRACTAL = float32(0.000043161)
     a = x_signed * FRACTAL
     b = y_signed * FRACTAL
     c = z_signed * FRACTAL
@@ -41,48 +47,49 @@ def dequantise_quaternions(quat_data: NDArray, bone_count: int, rot_indices: NDA
     d = np.sqrt(d_squared)
     d = np.where(sign_bit, -d, d)
     
+    temp_quats = np.zeros((len(bindings), quat_data.shape[1], 4), dtype=np.float32)
     for idx_value in range(4):
         mask = (comp_idx == idx_value)
         if not np.any(mask):
             continue  
         
-        if idx_value == 0:  
-            quaternions[bindings, :, 0][mask] = d[mask]
-            quaternions[bindings, :, 1][mask] = a[mask]
-            quaternions[bindings, :, 2][mask] = b[mask]
-            quaternions[bindings, :, 3][mask] = c[mask]
-        elif idx_value == 1:  
-            quaternions[bindings, :, 0][mask] = a[mask]
-            quaternions[bindings, :, 1][mask] = d[mask]
-            quaternions[bindings, :, 2][mask] = b[mask]
-            quaternions[bindings, :, 3][mask] = c[mask]
-        elif idx_value == 2:  
-            quaternions[bindings, :, 0][mask] = a[mask]
-            quaternions[bindings, :, 1][mask] = b[mask]
-            quaternions[bindings, :, 2][mask] = d[mask]
-            quaternions[bindings, :, 3][mask] = c[mask]
-        else: 
-            quaternions[bindings, :, 0][mask] = a[mask]
-            quaternions[bindings, :, 1][mask] = b[mask]
-            quaternions[bindings, :, 2][mask] = c[mask]
-            quaternions[bindings, :, 3][mask] = d[mask]
+        if idx_value == 0:    # X was omitted
+            temp_quats[:, :, 0][mask] = d[mask]
+            temp_quats[:, :, 1][mask] = a[mask]
+            temp_quats[:, :, 2][mask] = b[mask]
+            temp_quats[:, :, 3][mask] = c[mask]
+        elif idx_value == 1:  # Y was omitted
+            temp_quats[:, :, 0][mask] = a[mask]
+            temp_quats[:, :, 1][mask] = d[mask]
+            temp_quats[:, :, 2][mask] = b[mask]
+            temp_quats[:, :, 3][mask] = c[mask]
+        elif idx_value == 2:  # Z was omitted
+            temp_quats[:, :, 0][mask] = a[mask]
+            temp_quats[:, :, 1][mask] = b[mask]
+            temp_quats[:, :, 2][mask] = d[mask]
+            temp_quats[:, :, 3][mask] = c[mask]
+        else:                 # W was omitted
+            temp_quats[:, :, 0][mask] = a[mask]
+            temp_quats[:, :, 1][mask] = b[mask]
+            temp_quats[:, :, 2][mask] = c[mask]
+            temp_quats[:, :, 3][mask] = d[mask]
     
+    quaternions[bindings, :, :] = temp_quats
     w_negative  = quaternions[:, :, 3] < 0
     quaternions = np.where(w_negative[:, :, np.newaxis], -quaternions, quaternions)
-
-    magnitudes = np.sqrt(np.sum(quaternions ** 2, axis=2))
-    quaternions_normalized = quaternions / magnitudes[:, :, np.newaxis]
-
-    return quaternions_normalized
+    
+    return normalise_quats(quaternions)
 
 def dequantise_scalars(scalars: NDArray, min: NDArray, span: NDArray) -> NDArray:
-    normalised = scalars / single(65535)
+    normalised = scalars / float32(65535)
     return min[:, None] + normalised * span[:, None]
 
-def matrix_from_12floats(values) -> Matrix:
-    return Matrix([
-                    values[0:4],   
-                    values[4:8],   
-                    values[8:12],  
-                    [0, 0, 0, 1]   
-                ])
+def get_child_bones(skeleton: 'hkaSkeletonNode') -> dict[int, set[int]]:
+    child_bones = defaultdict(set)
+    for bone_idx in range(len(skeleton["bones"])):
+        parent_idx = skeleton["parentIndices"][bone_idx]
+
+        if parent_idx > -1:
+            child_bones[parent_idx].add(bone_idx)
+
+    return child_bones
