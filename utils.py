@@ -100,7 +100,7 @@ class BinaryReader:
     def read_to_ndarray(self, dtype: str, count: int) -> NDArray:
         itemsize     = np.dtype(dtype).itemsize
         bytes_needed = itemsize * count
-        if self.pos + bytes_needed > self.remaining_bytes():
+        if bytes_needed > self.remaining_bytes():
             raise ValueError(f"Not enough data to read {count} items of {dtype}")
     
         array = np.frombuffer(
