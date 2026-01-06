@@ -30,6 +30,7 @@ class QuantisedAnimation:
         self.rotations   : NDArray = None
         self.scale       : NDArray = None
         self.floats      : NDArray = None
+        self.raw_frames  : bytes   = b''
 
         self.tracks: dict[int, NDArray] = {}
     
@@ -60,8 +61,11 @@ class QuantisedAnimation:
         
         #Inputting the static values into the pose arrays
         trs, rot, scl, floats = anim._create_frame_arrays(anim.header.frame_count)
-        buffer_size = anim.header.frame_count * anim.header.frame_size
-        all_frames  = np.frombuffer(reader.data[pre_frame_size: pre_frame_size + buffer_size], uint16)
+        buffer_size     = anim.header.frame_count * anim.header.frame_size
+        frame_data      = reader.data[pre_frame_size: pre_frame_size + buffer_size]
+        anim.raw_frames = frame_data[:]
+
+        all_frames  = np.frombuffer(frame_data, uint16)
         all_frames  = all_frames.reshape(anim.header.frame_count, anim.header.frame_size // 2)
 
         trs_start   = 0
